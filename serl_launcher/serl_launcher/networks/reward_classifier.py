@@ -106,6 +106,7 @@ def load_classifier_func(
         target=classifier,
         step=step,
     )
+
     func = lambda obs: classifier.apply_fn(
         {"params": classifier.params}, obs, train=False
     )

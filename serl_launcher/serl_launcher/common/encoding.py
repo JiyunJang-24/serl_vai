@@ -5,7 +5,9 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from einops import rearrange, repeat
-
+import numpy as np
+import copy
+from jax.experimental import io_callback
 
 class EncodingWrapper(nn.Module):
     """
@@ -51,10 +53,41 @@ class EncodingWrapper(nn.Module):
             encoded.append(image)
 
         encoded = jnp.concatenate(encoded, axis=-1)
-
+       
         if self.use_proprio:
             # project state to embeddings as well
-            state = observations["state"]
+            if "state" in observations:
+                if "subgoal" in observations:
+                    subgoal = observations["subgoal"]
+                    # Check if subgoal is a valid key in observations
+                    subgoal = jnp.where((subgoal == 0) | (subgoal == 1), subgoal, 0)
+                    if len(subgoal.shape) == 2:
+                        subgoal = rearrange(subgoal, "T C -> (T C)")
+                    if len(subgoal.shape) == 3:
+                        subgoal = rearrange(subgoal, "B T C -> B (T C)")
+                    subgoal = nn.Embed(num_embeddings=2, features=768)(subgoal)
+                    # Handle various possible shapes
+                    if len(subgoal.shape) == 2:
+                        subgoal = rearrange(subgoal, "T C -> (T C)")
+                    if len(subgoal.shape) == 3:
+                        subgoal = rearrange(subgoal, "B T C -> B (T C)")
+                    
+                    # Concatenate to encoded
+                    encoded = jnp.concatenate([encoded, subgoal], axis=-1)
+                else:
+                    print("Warning: subgoal not found in observations!")
+            state = copy.deepcopy(observations["state"])
+            # import pdb; pdb.set_trace()
+            # state = np.concatenate([v.flatten() for v in state.values()])
+            try:
+                state = {
+                            k: jnp.atleast_1d(jnp.asarray(v))
+                            for k, v in state.items()
+                        }
+                # 1D 배열로 변환
+                state = jnp.concatenate([v for v in state.values()], axis=-1)
+            except:
+                state = state
             if self.enable_stacking:
                 # Combine stacking and channels into a single dimension
                 if len(state.shape) == 2:
@@ -71,6 +104,90 @@ class EncodingWrapper(nn.Module):
 
         return encoded
 
+
+class InstructionEncodingWrapper(nn.Module):
+    """
+    Encodes observations into a single flat encoding, adding additional
+    functionality for adding proprioception and stopping the gradient.
+
+    Args:
+        encoder: The encoder network.
+        use_proprio: Whether to concatenate proprioception (after encoding).
+    """
+
+    encoder: nn.Module
+    use_proprio: bool
+    proprio_latent_dim: int = 64
+    enable_stacking: bool = False
+    image_keys: Iterable[str] = ("image",)
+    language_keys: Iterable[str] = ("instruction",)
+
+    @nn.compact
+    def __call__(
+        self,
+        observations: Dict[str, jnp.ndarray],
+        train=False,
+        stop_gradient=False,
+        is_encoded=False,
+    ) -> jnp.ndarray:
+        # encode images with encoder
+        encoded = []
+        for image_key in self.image_keys:
+            image = observations[image_key]
+            if not is_encoded:
+                if self.enable_stacking:
+                    # Combine stacking and channels into a single dimension
+                    if len(image.shape) == 4:
+                        image = rearrange(image, "T H W C -> H W (T C)")
+                    if len(image.shape) == 5:
+                        image = rearrange(image, "B T H W C -> B H W (T C)")
+
+            image = self.encoder[image_key](image, train=train, encode=not is_encoded)
+
+            if stop_gradient:
+                image = jax.lax.stop_gradient(image)
+
+            encoded.append(image)
+
+        encoded = jnp.concatenate(encoded, axis=-1)
+
+        if self.encoder[self.language_keys[0]] is not None and self.language_keys[0] in observations:
+            language_encoding = copy.deepcopy(observations[self.language_keys[0]])
+            if jnp.ndim(language_encoding) != 1:
+                language_encoding = language_encoding.squeeze(jnp.ndim(language_encoding)-2)
+            
+            encoded = jnp.concatenate([encoded, language_encoding], axis=-1)
+
+        if self.use_proprio:
+            # project state to embeddings as well
+            state = copy.deepcopy(observations["state"])
+            # import pdb; pdb.set_trace()
+            # state = np.concatenate([v.flatten() for v in state.values()])
+            try:
+                state = {
+                            k: jnp.atleast_1d(jnp.asarray(v))
+                            for k, v in state.items()
+                        }
+                # 1D 배열로 변환
+                state = jnp.concatenate([v for v in state.values()], axis=-1)
+            except:
+                state = state
+
+            if self.enable_stacking:
+                # Combine stacking and channels into a single dimension
+                if len(state.shape) == 2:
+                    state = rearrange(state, "T C -> (T C)")
+                    encoded = encoded.reshape(-1)
+                if len(state.shape) == 3:
+                    state = rearrange(state, "B T C -> B (T C)")
+            state = nn.Dense(
+                self.proprio_latent_dim, kernel_init=nn.initializers.xavier_uniform()
+            )(state)
+            state = nn.LayerNorm()(state)
+            state = nn.tanh(state)
+            encoded = jnp.concatenate([encoded, state], axis=-1)
+
+        return encoded
 
 class GCEncodingWrapper(nn.Module):
     """

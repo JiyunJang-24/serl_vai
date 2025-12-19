@@ -8,12 +8,15 @@ import tensorflow_datasets as tfds
 
 from agentlace.trainer import TrainerConfig
 from agentlace.data.tfds import populate_datastore
+from serl_launcher.common.typing import Batch, PRNGKey
 
 from serl_launcher.common.wandb import WandBLogger
 from serl_launcher.agents.continuous.bc import BCAgent
 from serl_launcher.agents.continuous.sac import SACAgent
 from serl_launcher.agents.continuous.drq import DrQAgent
 from serl_launcher.agents.continuous.vice import VICEAgent
+from serl_launcher.agents.continuous.sac_hybrid_single import SACAgentHybridSingleArm
+from serl_launcher.vision.data_augmentations import batched_random_crop
 
 from serl_launcher.data.data_store import (
     MemoryEfficientReplayBufferDataStore,
@@ -116,6 +119,155 @@ def make_drq_agent(
     return agent
 
 
+
+def make_drq_agent_instruction(
+    seed,
+    sample_obs,
+    sample_action,
+    image_keys=("image",),
+    language_keys=("instruction",),
+    encoder_type="small",
+    discount=0.96,
+):
+    agent = DrQAgent.create_drq_instruction(
+        jax.random.PRNGKey(seed),
+        sample_obs,
+        sample_action,
+        encoder_type=encoder_type,
+        use_proprio=True,
+        image_keys=image_keys,
+        language_keys=language_keys,
+        policy_kwargs={
+            "tanh_squash_distribution": True,
+            "std_parameterization": "exp",
+            "std_min": 1e-5,
+            "std_max": 5,
+        },
+        critic_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        policy_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        temperature_init=1e-2,
+        discount=discount,
+        backup_entropy=False,
+        critic_ensemble_size=10,
+        critic_subsample_size=2,
+    )
+    return agent
+
+
+def make_sac_pixel_agent_hybrid_single_arm(
+    seed,
+    sample_obs,
+    sample_action,
+    image_keys=("image",),
+    encoder_type="resnet-pretrained",
+    reward_bias=0.0,
+    target_entropy=None,
+    discount=0.97,
+):
+    agent = SACAgentHybridSingleArm.create_pixels(
+        jax.random.PRNGKey(seed),
+        sample_obs,
+        sample_action,
+        encoder_type=encoder_type,
+        use_proprio=True,
+        image_keys=image_keys,
+        policy_kwargs={
+            "tanh_squash_distribution": True,
+            "std_parameterization": "exp",
+            "std_min": 1e-5,
+            "std_max": 5,
+        },
+        critic_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        grasp_critic_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        policy_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        temperature_init=1e-2,
+        discount=discount,
+        backup_entropy=False,
+        critic_ensemble_size=2,
+        critic_subsample_size=None,
+        reward_bias=reward_bias,
+        target_entropy=target_entropy,
+        augmentation_function=make_batch_augmentation_func(image_keys),
+    )
+    return agent
+
+
+def make_sac_pixel_agent_hybrid_single_arm_instruction(
+    seed,
+    sample_obs,
+    sample_action,
+    image_keys=("image",),
+    language_keys=("instruction",),
+    encoder_type="resnet-pretrained",
+    reward_bias=0.0,
+    target_entropy=None,
+    discount=0.97,
+    grasp_divide=False,
+):
+    agent = SACAgentHybridSingleArm.create_pixels_instruction(
+        jax.random.PRNGKey(seed),
+        sample_obs,
+        sample_action,
+        encoder_type=encoder_type,
+        use_proprio=True,
+        image_keys=image_keys,
+        language_keys=language_keys,
+        policy_kwargs={
+            "tanh_squash_distribution": True,
+            "std_parameterization": "exp",
+            "std_min": 1e-5,
+            "std_max": 5,
+        },
+        critic_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        grasp_critic_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        policy_network_kwargs={
+            "activations": nn.tanh,
+            "use_layer_norm": True,
+            "hidden_dims": [256, 256],
+        },
+        temperature_init=1e-2,
+        discount=discount,
+        backup_entropy=False,
+        critic_ensemble_size=2,
+        critic_subsample_size=None,
+        reward_bias=reward_bias,
+        target_entropy=target_entropy,
+        augmentation_function=make_batch_augmentation_func(image_keys),
+        grasp_divide=grasp_divide,
+    )
+    return agent
+
+
+
+
 def make_vice_agent(
     seed,
     sample_obs,
@@ -167,6 +319,34 @@ def make_vice_agent(
     )
     return agent
 
+
+
+def make_batch_augmentation_func(image_keys) -> callable:
+
+    def data_augmentation_fn(rng, observations):
+        for pixel_key in image_keys:
+            observations = observations.copy(
+                add_or_replace={
+                    pixel_key: batched_random_crop(
+                        observations[pixel_key], rng, padding=4, num_batch_dims=2
+                    )
+                }
+            )
+        return observations
+    
+    def augment_batch(batch: Batch, rng: PRNGKey) -> Batch:
+        rng, obs_rng, next_obs_rng = jax.random.split(rng, 3)
+        obs = data_augmentation_fn(obs_rng, batch["observations"])
+        next_obs = data_augmentation_fn(next_obs_rng, batch["next_observations"])
+        batch = batch.copy(
+            add_or_replace={
+                "observations": obs,
+                "next_observations": next_obs,
+            }
+        )
+        return batch
+    
+    return augment_batch
 
 def make_trainer_config(port_number: int = 5488, broadcast_port: int = 5489):
     return TrainerConfig(

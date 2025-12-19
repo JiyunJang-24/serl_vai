@@ -82,6 +82,7 @@ def load_resnet10_params(agent, image_keys=("image",), public=True):
             os.makedirs(file_path)
         file_path = os.path.join(file_path, file_name)
         # Check if the file exists
+
         if os.path.exists(file_path):
             print(f"The ResNet-10 weights already exist at '{file_path}'.")
         else:

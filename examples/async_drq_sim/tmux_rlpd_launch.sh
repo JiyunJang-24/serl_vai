@@ -1,4 +1,5 @@
 #!/bin/bash
+export PYTHONPATH="/home/fick17/Desktop/JY/SERL/serl"
 
 # use the default values if the env variables are not set
 EXAMPLE_DIR=${EXAMPLE_DIR:-"examples/async_drq_sim"}

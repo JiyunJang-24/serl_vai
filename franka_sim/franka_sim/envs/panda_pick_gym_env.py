@@ -226,7 +226,7 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         rendered_frames = []
         for cam_id in self.camera_id:
             rendered_frames.append(
-                self._viewer.render(render_mode="rgb_array", camera_id=cam_id)
+                self._viewer.render(render_mode="rgb_array")
             )
         return rendered_frames
 

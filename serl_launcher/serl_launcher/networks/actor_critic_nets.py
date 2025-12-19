@@ -73,6 +73,34 @@ class Critic(nn.Module):
         return jnp.squeeze(value, -1)
 
 
+class GraspCritic(nn.Module):
+    encoder: Optional[nn.Module]
+    network: nn.Module
+    init_final: Optional[float] = None
+    output_dim: Optional[int] = 3
+    
+    @nn.compact
+    def __call__(
+        self, 
+        observations: jnp.ndarray, 
+        train: bool = False
+    ) -> jnp.ndarray:
+        if self.encoder is None:
+            obs_enc = observations
+        else:
+            obs_enc = self.encoder(observations)
+        
+        outputs = self.network(obs_enc, train)
+        if self.init_final is not None:
+            value = nn.Dense(
+                self.output_dim,
+                kernel_init=nn.initializers.uniform(-self.init_final, self.init_final),
+            )(outputs)
+        else:
+            value = nn.Dense(self.output_dim, kernel_init=default_init())(outputs)
+        return value # (batch_size, self.output_dim)
+
+
 class DistributionalCritic(nn.Module):
     encoder: Optional[nn.Module]
     network: nn.Module

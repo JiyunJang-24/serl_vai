@@ -1,0 +1,6 @@
+[submodule "onrobot_rg"]
+	path = onrobot_rg
+	url = https://github.com/JiyunJang-24/onrobot-rg.git
+[submodule "examples/openvla"]
+	path = examples/openvla
+	url = https://github.com/JiyunJang-24/OpenVLA_SERL.git

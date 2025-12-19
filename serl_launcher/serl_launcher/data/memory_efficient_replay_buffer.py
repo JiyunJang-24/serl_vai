@@ -16,6 +16,8 @@ class MemoryEfficientReplayBuffer(ReplayBuffer):
         action_space: gym.Space,
         capacity: int,
         pixel_keys: Tuple[str, ...] = ("pixels",),
+        include_next_actions: Optional[bool] = False,
+        include_grasp_penalty: Optional[bool] = False,
     ):
         self.pixel_keys = pixel_keys
 
@@ -48,6 +50,8 @@ class MemoryEfficientReplayBuffer(ReplayBuffer):
             action_space,
             capacity,
             next_observation_space=next_observation_space,
+            include_next_actions=include_next_actions,
+            include_grasp_penalty=include_grasp_penalty,
         )
 
     def insert(self, data_dict: DatasetDict):
@@ -57,7 +61,6 @@ class MemoryEfficientReplayBuffer(ReplayBuffer):
                 element = super().sample(1, indx=indx)
                 self._is_correct_index[self._insert_index] = False
                 super().insert(element)
-
         data_dict = data_dict.copy()
         data_dict["observations"] = data_dict["observations"].copy()
         data_dict["next_observations"] = data_dict["next_observations"].copy()
@@ -133,7 +136,6 @@ class MemoryEfficientReplayBuffer(ReplayBuffer):
 
         batch = super().sample(batch_size, keys, indx)
         batch = batch.unfreeze()
-
         obs_keys = self.dataset_dict["observations"].keys()
         obs_keys = list(obs_keys)
         for pixel_key in self.pixel_keys:

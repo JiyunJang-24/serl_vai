@@ -165,6 +165,16 @@ class SACAgent(flax.struct.PyTreeNode):
             batch["rewards"]
             + self.config["discount"] * batch["masks"] * target_next_min_q
         )
+        # JY: clipped target Q by reward modeling
+        # reward = batch["rewards"].copy()  # shape: (batch_size,)
+        # reward_min = jnp.full_like(reward, -0.05)
+
+        # reward_max = jnp.where(
+        #     reward > 0,
+        #     1.0,
+        #     0.15
+        # )
+        # target_q = jnp.clip(target_q, reward_min, reward_max)
         chex.assert_shape(target_q, (batch_size,))
 
         if self.config["backup_entropy"]:

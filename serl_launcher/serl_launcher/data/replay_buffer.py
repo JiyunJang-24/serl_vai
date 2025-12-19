@@ -44,6 +44,9 @@ class ReplayBuffer(Dataset):
         action_space: gym.Space,
         capacity: int,
         next_observation_space: Optional[gym.Space] = None,
+        include_next_actions: Optional[bool] = False,
+        include_label: Optional[bool] = False,
+        include_grasp_penalty: Optional[bool] = False,
     ):
         if next_observation_space is None:
             next_observation_space = observation_space
@@ -58,7 +61,16 @@ class ReplayBuffer(Dataset):
             masks=np.empty((capacity,), dtype=np.float32),
             dones=np.empty((capacity,), dtype=bool),
         )
-
+        if include_next_actions:
+            dataset_dict['next_actions'] = np.empty((capacity, *action_space.shape), dtype=action_space.dtype)
+            dataset_dict['next_intvn'] = np.empty((capacity,), dtype=bool)
+            
+        if include_label:
+            dataset_dict['labels'] = np.empty((capacity,), dtype=int)
+        
+        if include_grasp_penalty:
+            dataset_dict['grasp_penalty'] = np.empty((capacity,), dtype=np.float32)
+            
         super().__init__(dataset_dict)
 
         self._size = 0

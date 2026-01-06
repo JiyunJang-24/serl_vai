@@ -424,7 +424,7 @@ def make_replay_buffer(
             env.observation_space,
             env.action_space,
             capacity=capacity,
-            rlds_logger=rlds_logger,
+            # rlds_logger=rlds_logger,
         )
     elif type == "memory_efficient_replay_buffer":
         replay_buffer = MemoryEfficientReplayBufferDataStore(

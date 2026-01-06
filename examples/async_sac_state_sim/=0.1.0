@@ -1,0 +1,7 @@
+Collecting ml_collections
+  Using cached ml_collections-1.1.0-py3-none-any.whl.metadata (22 kB)
+Requirement already satisfied: absl-py in /home/vai/anaconda3/envs/serl/lib/python3.10/site-packages (from ml_collections) (2.3.1)
+Requirement already satisfied: PyYAML in /home/vai/anaconda3/envs/serl/lib/python3.10/site-packages (from ml_collections) (6.0.3)
+Using cached ml_collections-1.1.0-py3-none-any.whl (76 kB)
+Installing collected packages: ml_collections
+Successfully installed ml_collections-1.1.0

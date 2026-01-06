@@ -182,7 +182,7 @@ class SpaceMouseLIBEROExpertV2:
                     # **✅ np.float64로 변환하여 오류 방지**
                     
                     new_action = np.array(
-                        [-state.y, -state.x, state.z, state.roll, -state.pitch, state.yaw], 
+                        [-state.x, state.y, state.z, state.roll, -state.pitch, state.yaw], 
                         dtype=np.float64
                     )
 
@@ -267,7 +267,8 @@ class SpacemouseInterventionUR5(gym.ActionWrapper):
     def step(self, action):
         new_action, replaced = self.action(action)        
         # new_action = np.clip(new_action, self.env.action_space.low, self.env.action_space.high)
-        obs, rew, done, info = self.env.step(new_action)
+        obs, rew, terminated, truncated,info = self.env.step(new_action)
+        done = terminated or truncated
         if replaced:
             # print(new_action)
             info["intervene_action"] = new_action
@@ -326,7 +327,7 @@ class SpaceMouseUR5Expert:
                     # **✅ np.float64로 변환하여 오류 방지**
                 
                 new_action = np.array(
-                    [state.x, state.y, state.z, -state.pitch, state.roll, -state.yaw], 
+                    [-state.x, -state.y, state.z, -state.pitch, state.roll, -state.yaw], 
                     dtype=np.float64
                 )
 
@@ -357,7 +358,7 @@ class SpaceMouseUR5Expert:
                     # **✅ np.float64로 변환하여 오류 방지**
                 
                 new_action = np.array(
-                    [state.x, state.y, state.z], 
+                    [-state.y, state.x, state.z], 
                     dtype=np.float64
                 )
 
@@ -372,7 +373,7 @@ class SpaceMouseUR5Expert:
                 self.latest_data["action"] = new_action
                 self.latest_data["buttons"] = state.buttons
 
-                # time.sleep(0.05)  # **🔹 호출 빈도를 줄여 시스템 과부하 방지**
+                time.sleep(0.0005)  # **🔹 호출 빈도를 줄여 시스템 과부하 방지**
 
             except Exception as e:
                 print(f"❌ SpaceMouse 읽기 오류 발생! 연결이 끊겼음: {e}")

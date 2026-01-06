@@ -10,7 +10,7 @@ from gym.envs.registration import register
 register(
     id="PandaPickCube-v0",
     entry_point="franka_sim.envs:PandaPickCubeGymEnv",
-    max_episode_steps=100,
+    max_episode_steps=100,   
 )
 register(
     id="PandaPickCubeVision-v0",

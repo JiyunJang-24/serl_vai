@@ -897,8 +897,8 @@ class Quat2EulerWrapper(gym.ObservationWrapper):
         return observation
     
     def step(self, action):
-        obs, reward, done, truncated, info = self.env.step(action)
-        # obs, reward, done, info = self.env.step(action)
+        # obs, reward, done, truncated, info = self.env.step(action)
+        obs, reward, done, info = self.env.step(action)
         obs = self.observation(obs)
         return obs, reward, done, info
 

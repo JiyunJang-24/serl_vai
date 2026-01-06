@@ -11,7 +11,7 @@ class UR5CameraConfig(DefaultEnvConfig):
     ABS_POSE_LIMIT_LOW = np.array([-0.2, -0.7, - 0.006, 2.8, -0.18, -3.2])
     ACTION_SCALE = np.array([0.02, 0.1, 1.], dtype=np.float32)
 
-    ROBOT_IP: str = "192.168.0.9"
+    ROBOT_IP: str = "192.168.0.251"
     CONTROLLER_HZ = 100
     GRIPPER_TIMEOUT = 2000  # in milliseconds
     ERROR_DELTA: float = 0.05
@@ -80,7 +80,7 @@ class UR5CameraConfigFinal(DefaultEnvConfig):  # config for 10 boxes
     INNER_ABS_POSE_LOW = np.array([-0.51, -0.06, -0.1])
     ACTION_SCALE = np.array([0.025, 0.075, 1.], dtype=np.float32)
 
-    ROBOT_IP: str = "192.168.0.253"
+    ROBOT_IP: str = "192.168.0.251"
     CONTROLLER_HZ = 100
     GRIPPER_TIMEOUT = 2000  # in milliseconds
     ERROR_DELTA: float = 0.05

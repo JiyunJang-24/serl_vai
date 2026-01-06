@@ -36,6 +36,8 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         render_spec: GymRenderingSpec = GymRenderingSpec(),
         render_mode: Literal["rgb_array", "human"] = "rgb_array",
         image_obs: bool = False,
+        width:  int =  1260,
+        height: int = 960,
     ):
         self._action_scale = action_scale
 
@@ -141,9 +143,14 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         # is possible to add a similar viewer feature with gym, but that can be a future TODO
         from gymnasium.envs.mujoco.mujoco_rendering import MujocoRenderer
 
+        self.width = width
+        self.height = height
+
         self._viewer = MujocoRenderer(
             self.model,
             self.data,
+            width=self.width,
+            height=self.height,
         )
         self._viewer.render(self.render_mode)
 

@@ -18,7 +18,7 @@ def analyze_pickle(file_path):
 
             for idx, data in enumerate(data_list):
                 # import pdb; pdb.set_trace()  # 디버깅을 위한 중단점
-                print(data["actions"][:3])
+                # print(data["actions"])
                 obs = data['observations']
                 # if data['rewards'] == 1.0:
                 #     import pdb; pdb.set_trace()
@@ -66,5 +66,5 @@ def process_all_pickles(folder_path):
         analyze_pickle(full_path)
 
 # 사용 예시
-folder_path = "/home/fick17/Desktop/JY/SERL/serl/examples/ur5_async_bin_reloaction_fwbw_drq/vla_demos/Pick_up_the_yellow_tiger_plush_from_the_bin_and_place_it_on_the_brown_plate"  # 폴더 경로 입력
+folder_path = "/home/vai/Desktop/yujin/serl_vai/examples/ur5_async_bin_reloaction_fwbw_drq/vla_demos/Pick_up_the_gray_plush_from_the_bin_and_place_it_on_the_brown_plate"  # 폴더 경로 입력
 process_all_pickles(folder_path)

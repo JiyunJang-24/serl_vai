@@ -15,18 +15,33 @@ from datetime import datetime
 from collections import OrderedDict
 from scipy.spatial.transform import Rotation as R
 # import open3d as o3d
-
+import xml.etree.ElementTree as ET
 from ur_env.camera.video_capture import VideoCapture
 from ur_env.camera.rs_capture import RSCapture
 from ur_env.utils.rotations import quat_2_euler, quat_2_mrp
 # from ur_env.camera.utils import PointCloudFusion, CalibrationTread
 from scipy.spatial.transform import Rotation
-
+import sys
+import os
+import torch
+import torch.nn as nn
+from torch import Tensor
 from robot_controllers.ur5_controller import UrImpedanceController
 from robot_controllers.ur5_controller_thread import UrImpedanceController_Thread
 from robot_controllers.ur5_imp_controller_thread import UrImpController_Thread
 from robot_controllers.controller_client import ControllerClientWithGripper
-
+lerobot_root = "/home/vai/Desktop/yujin/shortcut-learning-in-grps/lerobot"
+if lerobot_root not in sys.path:
+    sys.path.append(lerobot_root)
+from lerobot.common.datasets.camera_utils import (
+    PluckerEmbedder,
+    remove_extrinsic_camera_axis_correction
+)
+from lerobot.common.datasets.viz_utils import (
+    _get_motion_dynamics_basis,
+    _make_motion_basis_axis_rgb_tensor_cam_to_world,
+    save_rgb_image,
+)
 
 class ImageDisplayer(threading.Thread):
     def __init__(self, queue):
@@ -108,8 +123,8 @@ class DefaultEnvConfig:
     RANDOM_XY_RANGE = (0.0,)
     RANDOM_Z_RANGE = (0.0)
     RANDOM_ROT_RANGE = (0.0,)
-    ABS_POSE_LIMIT_HIGH = np.zeros((6,))
-    ABS_POSE_LIMIT_LOW = np.zeros((6,))
+    ABS_POSE_LIMIT_HIGH = np.array([-0.36693064, 0.15773897, 0.16492795, -3.11742197, -0.03197331, 1.43640245])
+    ABS_POSE_LIMIT_LOW = np.array([-0.57895309, -0.11052661, -0.09725043, -3.1174202, -0.03198301, 1.43636228])
     ABS_POSE_RANGE_LIMITS = np.zeros((2,))
     ACTION_SCALE = np.zeros((3,), dtype=np.float32)
 
@@ -133,7 +148,7 @@ class DefaultEnvConfig:
 ##############################################################################
 
 
-class UR5Env(gym.Env):
+class  UR5Env(gym.Env):
     def __init__(
             self,
             hz: int = 10,
@@ -144,6 +159,8 @@ class UR5Env(gym.Env):
             camera_mode: str = "rgb",  # one of (rgb, grey, depth, both(rgb depth), pointcloud, none)
             visualize_camera_mode: bool = True,
             only_pos_control: bool = False,
+            height: int = 256,
+            width: int = 256,
     ):
         self.max_episode_length = max_episode_length
         self.curr_path_length = 0
@@ -159,13 +176,15 @@ class UR5Env(gym.Env):
         self.curr_Qd = np.zeros((6,), dtype=np.float32)
         self.curr_force = np.zeros((3,), dtype=np.float32)
         self.curr_torque = np.zeros((3,), dtype=np.float32)
-
+        self.curr_tcp_pose = np.zeros((7,), dtype=np.float32)
         self.gripper_state = np.zeros((2,), dtype=np.float32)
         self.random_reset = config.RANDOM_RESET
         self.random_xy_range = config.RANDOM_XY_RANGE
         self.random_z_range = config.RANDOM_Z_RANGE
         self.random_rot_range = config.RANDOM_ROT_RANGE
         self.hz = hz
+        self.width = width
+        self.height = height
         np.random.seed(0)        # fix seed for fixed (random) initial rotations
 
         camera_mode = None if camera_mode.lower() == "none" else camera_mode
@@ -219,6 +238,20 @@ class UR5Env(gym.Env):
             )
         self.last_action = np.zeros(self.action_space.shape)
 
+        ## Extrinsic & Intrinsic
+
+        self.intrinsic_path = "/home/vai/Desktop/yujin/visp/build/apps/calibration/hand-eye/data-ur/ur_camera.xml"
+        self.extrinsic_path = "/home/vai/Desktop/yujin/visp/build/apps/calibration/hand-eye/ur_rPc.txt"
+
+        self.load_intrinsic_from_xml(self.intrinsic_path)
+
+        try:
+            self.rMc = np.loadtxt(self.extrinsic_path)
+            print(self.rMc.shape)
+            print(f"[SUCCESS] Extrinsic loaded from {self.extrinsic_path}")
+        except:
+            print("[ERROR] Extrinsic file not found")
+            self.rMc = np.eye(4)
 
         image_space_definition = {}
         # self.camera_mode = "rgb"
@@ -264,6 +297,9 @@ class UR5Env(gym.Env):
                     "tcp_pose": gym.spaces.Box(
                         -np.inf, np.inf, shape=(7,)
                     ),  # only xyz
+                    "tip_pose": gym.spaces.Box(
+                        -np.inf, np.inf, shape=(7,)
+                    ),  # only xyz
                     "tcp_vel": gym.spaces.Box(-np.inf, np.inf, shape=(6,)), # only vx, vy, vz
                     "gripper_state": gym.spaces.Box(-1., 1., shape=(1,)),
                     "tcp_force": gym.spaces.Box(-np.inf, np.inf, shape=(3,)),
@@ -275,6 +311,9 @@ class UR5Env(gym.Env):
             state_space = gym.spaces.Dict(
                 {
                     "tcp_pose": gym.spaces.Box(
+                        -np.inf, np.inf, shape=(7,)
+                    ),  # xyz + quat
+                    "tip_pose": gym.spaces.Box(
                         -np.inf, np.inf, shape=(7,)
                     ),  # xyz + quat
                     "tcp_vel": gym.spaces.Box(-np.inf, np.inf, shape=(6,)), # vx, vy, vz, wx, wy, wz
@@ -348,6 +387,26 @@ class UR5Env(gym.Env):
         #     #     self.calibration_thread.start()
         #     #
         #     #     self.calibrate_pointcloud_fusion(visualize=True)
+
+    def load_intrinsic_from_xml(self, path):
+        try:
+            tree = ET.parse(path)
+            root = tree.getroot()
+            
+            # 첫 번째 camera -> model 섹션을 찾습니다.
+            # (Distortion이 없는 'perspectiveProjWithoutDistortion' 모델 기준)
+            model = root.find(".//camera[1]/model")
+            
+            self.fx = float(model.find("px").text)
+            self.fy = float(model.find("py").text)
+            self.u0 = float(model.find("u0").text)
+            self.v0 = float(model.find("v0").text)
+            
+            print(f"[SUCCESS] Intrinsic loaded: fx={self.fx}, fy={self.fy}, u0={self.u0}, v0={self.v0}")
+        except Exception as e:
+            print(f"[ERROR] Failed to parse XML: {e}")
+            # 로드 실패 시 기본값 (에러 방지용)
+            self.fx, self.fy, self.u0, self.v0 = 600, 600, 320, 240
 
     def clip_safety_box(self, next_pos: np.ndarray) -> np.ndarray:
         """Clip the pose to be within the safety box."""
@@ -530,7 +589,7 @@ class UR5Env(gym.Env):
         cost_infos = self.cost_infos.copy()
         self.cost_infos = {}
         return cost_infos
-    
+                                                                                      
     def step(self, action: np.ndarray) -> tuple:
         """standard gym step function."""
         #action => next target pos + next target rot (euler angles) + gripper action
@@ -561,7 +620,7 @@ class UR5Env(gym.Env):
         # safe_pos_euler = self.apply_inner_box_projection(safe_pos_euler, curr_pos_euler)
         # safe_pos_euler = self.clamp_to_inner_box_surface(curr_pos_euler, safe_pos_euler)
         # safe_pos_euler = self.clip_safety_box(safe_pos_euler)
-        # safe_pos_euler = next_pos_euler.copy()
+        safe_pos_euler = next_pos_euler.copy()
         self._send_pos_command(safe_pos_euler)
         self._send_gripper_command(gripper_action)
         if self.gripper_working is False:
@@ -720,11 +779,9 @@ class UR5Env(gym.Env):
 
     def reset(self, task_id=0, **kwargs):
         if task_id:
-            # self.controller.reset_Pose = np.array([-0.4145, 0.1155, 0.1796, 3.105092059764643, -0.21636168010279003, -0.0005821919071187946], dtype=np.float64)
-            # self.controller.reset_Pose = np.array([-0.4145, 0.1155, 0.1796, 0.3392, 3.0861, -0.0062], dtype=np.float64) #orientation 반대
-            self.controller.reset_Pose = np.array([-0.34014472379083527, -0.08027304437942921, 0.3172397913142071, 2.3684194298155976, 2.049572042552249, 0.09900706979995286], dtype=np.float64)
-            self.controller.reset_joint_Pose = np.array([-0.1500785986529749, -1.8939148388304652, 2.269125763569967, -1.896642347375387, -1.6074383894549769, -0.000386540089742482], dtype=np.float64) #joint 
-            self.controller.reset_joint_wrist = 1.6480844020843506
+            self.controller.reset_Pose = np.array([-0.4303951091702378, 0.08962297021711978, 0.19211797748053988, -2.3405800386430404, -2.0437101432553026, -0.015800558479868443], dtype=np.float64)
+            self.controller.reset_joint_Pose = np.array([-0.5116861502276819, -1.432984785442688, 2.2824323813067835, -2.4469601116576136, -1.588203255330221, -0.3696244398700159], dtype=np.float64) 
+            self.controller.reset_joint_wrist = -0.36966074
             # self.rpy_bounding_box.low[2] = 2.2
             # self.rpy_bounding_box.high[2] = 3.14
             # fw [-0.4205 -0.1095  0.1884 -2.9339  1.0701 -0.0558]
@@ -732,12 +789,9 @@ class UR5Env(gym.Env):
             # self.controller.target_pos = self.controller.reset_Pose
         else:
             # for RL
-            # self.controller.reset_Pose = np.array([-0.4148, -0.107, 0.1826, 3.105092059764643, -0.21636168010279003, -0.0005821919071187946], dtype=np.float64)
-            # self.controller.reset_joint_Pose = np.array([-0.07454377809633428, -1.4387623828700562, 2.3156240622149866, -2.446169992486471, -1.5381906668292444, -4.640702788029806], dtype=np.float64) #joint
-            # self.controller.reset_joint_wrist = -4.640702788029806
-            self.controller.reset_Pose = np.array([-0.34014472379083527, -0.08027304437942921, 0.3172397913142071, 2.3684194298155976, 2.049572042552249, 0.09900706979995286], dtype=np.float64)
-            self.controller.reset_joint_Pose = np.array([-0.1500785986529749, -1.8939148388304652, 2.269125763569967, -1.896642347375387, -1.6074383894549769, 0.0], dtype=np.float64) #joint 
-            self.controller.reset_joint_wrist = 0.0
+            self.controller.reset_Pose = np.array([-0.4303951091702378, 0.08962297021711978, 0.19211797748053988, -2.3405800386430404, -2.0437101432553026, -0.015800558479868443], dtype=np.float64)
+            self.controller.reset_joint_Pose = np.array([-0.5116861502276819, -1.432984785442688, 2.2824323813067835, -2.4469601116576136, -1.588203255330221, -0.3696244398700159], dtype=np.float64) 
+            self.controller.reset_joint_wrist = -0.36966074
             # self.rpy_bounding_box.low[2] = -0.5
             # self.rpy_bounding_box.high[2] = 0.7
             # self.controller.target_pos = self.controller.reset_Pose
@@ -799,6 +853,26 @@ class UR5Env(gym.Env):
         # import pdb; pdb.set_trace()
         return image[:, :, :]
     
+    def get_scaled_intrinsic_matrix(self):
+        # 1. 해상도 변화 비율 계산
+        sw = 256 / 640
+        sh = 256 / 480
+
+        # 2. 파라미터 스케일링
+        fx_scaled = self.fx * sw
+        fy_scaled = self.fy * sh
+        u0_scaled = self.u0 * sw
+        v0_scaled = self.v0 * sh
+
+        # 3. 3x3 Matrix 생성
+        K = np.array([
+            [fx_scaled, 0,         u0_scaled],
+            [0,         fy_scaled, v0_scaled],
+            [0,         0,         1        ]
+        ], dtype=np.float32)
+        
+        return K
+    
     def get_image(self) -> Dict[str, np.ndarray]:
         """Get images from the realsense cameras."""
         images = {}
@@ -817,7 +891,7 @@ class UR5Env(gym.Env):
                         cropped_rgb = self.crop_image(key, rgb)
                     elif key == "front":
                         cropped_rgb = self.crop_image_front(key, rgb)
-                    # cropped_rgb = rgb
+                    cropped_rgb = rgb
                     resized = cv2.resize(
                         cropped_rgb, self.observation_space["images"][key].shape[:2][::-1],
                     )
@@ -853,6 +927,28 @@ class UR5Env(gym.Env):
                     pointcloud = image
                     self.pointcloud_fusion.append(pointcloud, key.split('_')[0])
 
+                # [EEF AXIS OVERLAY TEST]
+                # rgb_input = torch.from_numpy(resized).permute(2, 0, 1).unsqueeze(0).to('cpu').float() / 255.0
+                # intrinsic_matrix = self.get_scaled_intrinsic_matrix()
+                # plucker_extrinsic_matrix = remove_extrinsic_camera_axis_correction(torch.from_numpy(np.linalg.inv(self.rMc)).to('cpu').float())
+                # motion_dynamics_basis = _get_motion_dynamics_basis(intrinsic_matrix, torch.from_numpy(self.rMc).to('cpu').float()).reshape(-1)
+
+                # axis_tensor, origin_xy = _make_motion_basis_axis_rgb_tensor_cam_to_world(
+                #     rgb_tensor=rgb_input,               # (B, 3,H,W)
+                #     motion_dynamics_basis=motion_dynamics_basis,
+                #     cam_to_world=torch.from_numpy(self.rMc).to('cpu').float(),                  # cam_pose = cam_to_world (고정)
+                #     intrinsic_matrix=intrinsic_matrix,
+                #     robot_eef_abs_poses=self.curr_pos, 
+                #     origin_robot=True,
+                #     origin_fallback="pp",
+                #     arrow_len=60,
+                #     return_overlay=True,
+                # ) # (B, 3, H, W)
+                # save_rgb_image(axis_tensor[0], "eef_overlay_out/axis_tensor.png")
+                # save_rgb_image(image[0].to('cpu'), "eef_overlay_out/origin_img.png")
+                # image = axis_tensor.squeeze(0).permute(1, 2, 0).numpy()
+
+                display_images[key] = resized
             except queue.Empty:
                 input(f"{key} camera frozen. Check connect, then press enter to relaunch...")
                 self.init_cameras(self.config.REALSENSE_CAMERAS)
@@ -932,6 +1028,7 @@ class UR5Env(gym.Env):
 
         self.curr_pos[:] = state['pos']
         self.curr_vel[:] = state['vel']
+        self.curr_tcp_pose[:] = state['tcp_pose']
         self.curr_force[:] = state['force'][:3]
         self.curr_torque[:] = state['force'][3:]
         self.curr_Q[:] = state['Q']
@@ -947,16 +1044,19 @@ class UR5Env(gym.Env):
         # get image before state observation, so they match better in time
 
         images = None
+        
+        self._update_currpos()
         if self.camera_mode is not None:
             images = self.get_image()
 
-        self._update_currpos()
+        
         if self.only_pos_control:
             state_observation = {
                 # "tcp_pose": self.curr_pos[:3],
                 # "tcp_vel": self.curr_vel[:3],
-                "tcp_pose": self.curr_pos,
+                "tcp_pose": self.curr_tcp_pose,
                 "tcp_vel": self.curr_vel,
+                "tip_pose": self.curr_pos,
                 "gripper_state": self.gripper_state[0],
                 "tcp_force": self.curr_force,
                 "tcp_torque": self.curr_torque,
@@ -964,8 +1064,9 @@ class UR5Env(gym.Env):
             }
         else:
             state_observation = {
-                "tcp_pose": self.curr_pos,
+                "tcp_pose": self.curr_tcp_pose,
                 "tcp_vel": self.curr_vel,
+                "tip_pose": self.curr_pos,
                 "gripper_state": self.gripper_state[0],
                 "tcp_force": self.curr_force,
                 "tcp_torque": self.curr_torque,

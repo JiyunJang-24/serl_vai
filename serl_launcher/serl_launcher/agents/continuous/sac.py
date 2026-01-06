@@ -360,6 +360,7 @@ class SACAgent(flax.struct.PyTreeNode):
         critic_ensemble_size: int = 2,
         critic_subsample_size: Optional[int] = None,
     ):
+
         networks = {
             "actor": actor_def,
             "critic": critic_def,
@@ -527,7 +528,7 @@ class SACAgent(flax.struct.PyTreeNode):
             encoder=None,
             network=MLP(**policy_network_kwargs),
             action_dim=actions.shape[-1],
-            **policy_kwargs,
+            **policy_kwargs, 
             name="actor",
         )
         critic_cls = partial(Critic, encoder=None, network=MLP(**critic_network_kwargs))

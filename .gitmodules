@@ -4,3 +4,6 @@
 [submodule "examples/openvla"]
 	path = examples/openvla
 	url = https://github.com/JiyunJang-24/OpenVLA_SERL.git
+[submodule "examples/OpenVLA_SERL"]
+	path = examples/OpenVLA_SERL
+	url = https://github.com/JiyunJang-24/OpenVLA_SERL.git

@@ -131,9 +131,9 @@ async def monitor_status():
     while True:
         if current_pose is not None:
             current_pose_euler = compute_gripper_tip_pose(current_pose, 0.23)
+            print(f"[Monitor] Euler Pose: {current_pose_euler} | Force: {current_force} | Velocity: {current_velocity}")
             print(f"[Monitor] Pose: {current_pose} | Force: {current_force} | Velocity: {current_velocity}")
             print(f"[Monitor] Q: {current_Q}")
-            print(f"[Monitor] Euler Pose: {current_pose_euler} | Force: {current_force} | Velocity: {current_velocity}")
         await asyncio.sleep(0.5)
 
 async def main():

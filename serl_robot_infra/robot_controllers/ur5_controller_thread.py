@@ -99,6 +99,7 @@ class UrImpedanceController_Thread(threading.Thread):
         self.gripper_state = np.zeros(2, dtype=np.float64)
         self.curr_pos_rv = np.zeros(6, dtype=np.float64)
         self.curr_pos_euler = np.zeros(6, dtype=np.float64)
+        self.curr_tcp_pose = np.zeros(7, dtype=np.float64)
         # self.target_pos = np.array([-0.3520851312799418, -0.1418549027619048, 0.2251419911572377, -3.0294796774031645, 0.6576746557416007, 0.058019675187175684], dtype=np.float64)
         self.target_pos = None
         self.target_grip = 0.0
@@ -106,11 +107,11 @@ class UrImpedanceController_Thread(threading.Thread):
         self.hist_real = []
         self.hist_target = []
         self.reset_height = 0.5
-        self.reset_Pose = np.array([0.19036394544547358, -0.5509824733913188, 0.3743024207434382, 2.1730648280306664, 2.216902529146229, 0.03259730546907828], dtype=np.float64)
-        self.reset_joint_Pose = np.array([1.6642441749572754, -1.3628831666759034, 1.6354206244098108, -1.856189867059225, -1.5244134108172815, 1.6480844020843506], dtype=np.float64)
+        self.reset_Pose = np.array([-0.5798524086932216, -0.07779896339066612, 0.2912967266564542, 2.239873349550442, -2.1799279433398517, 0.03948359762987828], dtype=np.float64)
+        self.reset_joint_Pose = np.array([-0.10310775438417608, -1.2824154657176514, 1.7526004950152796, -2.0290900669493617, -1.5369427839862269, 3.0158703327178955], dtype=np.float64)
         self.gripper_length = 0.23
         self.gripper_working = True
-        self.reset_joint_wrist = np.array([0.0], dtype=np.float64)  # wrist joint angle for reset
+        self.reset_joint_wrist = np.array([3.0159289474], dtype=np.float64)  # wrist joint angle for reset
     def run(self):
         asyncio.run(self._run_async())
 
@@ -152,6 +153,7 @@ class UrImpedanceController_Thread(threading.Thread):
         return {
             "pos": self.curr_pos.copy(),
             "vel": self.curr_vel.copy(),
+            "tcp_pose": self.curr_tcp_pose.copy(),
             "Q": self.curr_Q.copy(),
             "Qd": self.curr_Qd.copy(),
             "force": self.curr_force_lowpass.copy(),
@@ -178,6 +180,7 @@ class UrImpedanceController_Thread(threading.Thread):
         pressure /= 98.
         with threading.Lock():
             self.curr_pos = pose_2_quat(tip_pos) #rv 2 quat
+            self.curr_tcp_pose = pose_2_quat(pos)
             self.curr_pos_rv = np.array(pos)
             self.curr_pos_euler = pose_2_euler(tip_pos)
             # print(self.curr_pos_euler)
@@ -219,6 +222,7 @@ class UrImpedanceController_Thread(threading.Thread):
         # control.zeroFtSensor()
         dt = 1.0 / self.frequency
         init_p = receive.getActualTCPPose()
+        self.curr_tcp_pose = np.array(init_p)
         init_p_tip = pose_to_tip_pose_rv(init_p)
         self.curr_pos_rv = np.array(init_p)
         self.curr_pos = pose_2_quat(init_p_tip)

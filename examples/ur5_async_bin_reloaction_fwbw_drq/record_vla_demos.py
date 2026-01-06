@@ -32,7 +32,7 @@ from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper, ScaleObserv
 dummy_action = np.array([0.] * 7)
 
 sub_task_list = [
-    "Pick up the yellow tiger plush from the bin and place it on the brown plate",
+    "Pick up the gray plush from the bin and place it on the brown plate",
     # "Pick up the cup from the light brown bin",
     # "Place the cup on the light brown bin",
 ]
@@ -45,7 +45,7 @@ if __name__ == "__main__":
                    )
     env = SpacemouseInterventionUR5(env)
     # env = RelativeFrame(env)
-    env = Quat2EulerWrapper(env)
+    env = Quat2EulerWrapper(env) # convert tcp pose (quaternion)
     # env = ScaleObservationWrapper(env)
     # env = ObservationRotationWrapper(env)       # if it should be enabled
     env = SERLObsWrapper(env)
@@ -142,6 +142,8 @@ if __name__ == "__main__":
                         observations=obs,
                         actions=actions,
                         next_observations=next_obs,
+                        extrinsic_matrix=env.rMc,
+                        intrinsic_matrix=env.get_scaled_intrinsic_matrix(),
                         rewards=rew,
                         masks=1.0 - done,
                         dones=done,
